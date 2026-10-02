@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules/
+__pycache__/
+*.pyc
+mobile/android/app/build/
+mobile/android/build/
+mobile/android/.gradle/
+mobile/android/app/src/main/assets/public/
+mobile/android/app/src/main/assets/capacitor.config.json
+mobile/android/app/src/main/assets/capacitor.plugins.json
+mobile/android/capacitor-cordova-android-plugins/
+mobile/android/local.properties
+
+# ⚠️ 签名密钥绝不能进仓库
+*.keystore
+*.jks
+keystore.properties
+
+# 编辑器
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

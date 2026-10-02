@@ -1,0 +1,22 @@
+# 部署到 Cloudflare 时，这些不进静态资源（站点本体：index.html / assets / data / demo / icons / manifest / sw.js）
+.git
+.gitignore
+/.wrangler
+/node_modules
+/src
+/tools
+/mobile
+/dist
+/functions
+/docs
+/worker.js
+/wrangler.jsonc
+/.assetsignore
+/README.md
+/package-lock.json
+/*.py
+/*.sh
+/*.yml
+/*.yaml
+/*.conf
+/*.md

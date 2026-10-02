@@ -1,0 +1,23 @@
+{
+  // Cloudflare Worker 配置：静态资源 + 口令入口脚本
+  // name 必须和你现有的 Worker 名字一致，否则会新建一个 Worker
+  //
+  // 面板（Workers Builds）里这两处这样填：
+  //   构建命令 Build command：
+  //     printf %s 'window.BD=window.BD||{};window.BD.gate={"on": false};' > data/gate.js
+  //   部署命令 Deploy command：
+  //     npx wrangler deploy
+  //
+  // 构建命令的作用：关掉前端口令门（那个是给 GitHub Pages 静态版用的）。
+  // Cloudflare 上口令由 worker.js 在服务端校验，前端再挡一次会让学生连输两遍。
+  // 这里用 printf 覆盖写而不是 sed 替换：无论 data/gate.js 原先是 on:true 还是
+  // on:false，结果都稳定是 off（sed 遇到已是 off 的文件会什么都不改）。
+  "name": "bigdata-beisai",
+  "main": "worker.js",
+  "compatibility_date": "2025-09-23",
+  "assets": {
+    // 把仓库目录当作静态资源；排除清单见 .assetsignore
+    "directory": ".",
+    "binding": "ASSETS"
+  }
+}

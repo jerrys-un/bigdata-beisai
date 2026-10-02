@@ -1,0 +1,19 @@
+{
+  "name": "bigdata-beisai-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "大数据应用与服务 · 闯关学习站（安卓客户端，Capacitor 封装）",
+  "scripts": {
+    "sync-web": "python ../build_mobile.py",
+    "cap:add": "cap add android",
+    "cap:sync": "cap sync android",
+    "build:apk": "cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3"
+  }
+}

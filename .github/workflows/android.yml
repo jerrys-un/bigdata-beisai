@@ -1,0 +1,148 @@
+name: 构建安卓 APK
+
+# 本机没有 JDK、Gradle / Maven 依赖也拉不动，所以把编译放到 GitHub 的机器上跑。
+# 推 mobile/ 下的任意改动就会自动出一版 APK；也可以到 Actions 页面手动点「Run workflow」。
+#
+# 出两种包：
+#   release —— R8 混淆 + 资源压缩，体积约为原来的一半，带正式签名（发给学生用这个）
+#   debug   —— 不混淆不压缩，出问题时可反查堆栈（自己排查用）
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 编译 APK（release + debug）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # 注意：不要用默认的 packages（它还在装早已下架的 "tools" 包，会直接失败）
+      - name: 安装 Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: 安装 npm 依赖
+        working-directory: mobile
+        run: npm install --no-audit --no-fund
+
+      - name: 同步 Web 资源到安卓工程
+        working-directory: mobile
+        run: npx cap sync android
+
+      # ---------- 签名 ----------
+      # 配了 Secret BIGDATA_KEYSTORE_BASE64 就用正式签名；
+      # 没配则退回 debug 签名，保证构建永不中断（包能装，但正式分发前应补上）。
+      - name: 准备签名 keystore
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.BIGDATA_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.BIGDATA_KEYSTORE_PASS }}
+        run: |
+          set -e
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/bigdata.keystore"
+            chmod 600 "$RUNNER_TEMP/bigdata.keystore"
+            echo "path=$RUNNER_TEMP/bigdata.keystore" >> "$GITHUB_OUTPUT"
+            echo "pass=$KEYSTORE_PASS" >> "$GITHUB_OUTPUT"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "✅ 使用正式签名"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ 未配置 BIGDATA_KEYSTORE_BASE64，本次退回 debug 签名"
+          fi
+
+      - name: 编译 release APK（R8 混淆 + 资源压缩）
+        working-directory: mobile/android
+        env:
+          KEYSTORE_PATH: ${{ steps.signing.outputs.path }}
+          STORE_PASS: ${{ steps.signing.outputs.pass }}
+        run: |
+          chmod +x gradlew
+          VER=$(node -e "console.log(require('../package.json').version)")
+          CODE=$(git rev-list --count HEAD)
+          echo "versionName=$VER  versionCode=$CODE"
+          ARGS=""
+          if [ -n "$KEYSTORE_PATH" ]; then
+            ARGS="-Pbigdata.keystore=$KEYSTORE_PATH"
+            ARGS="$ARGS -Pbigdata.storePassword=$STORE_PASS"
+            ARGS="$ARGS -Pbigdata.keyAlias=bigdata"
+            ARGS="$ARGS -Pbigdata.keyPassword=$STORE_PASS"
+          fi
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -Pbigdata.versionName="$VER" -Pbigdata.versionCode="$CODE" $ARGS
+
+      - name: 编译 debug APK（不混淆，便于排查）
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: 上传 release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bigdata-beisai-release
+          path: mobile/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: 上传 debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: bigdata-beisai-debug
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 结果汇总
+        env:
+          SIGNED: ${{ steps.signing.outputs.configured }}
+        run: |
+          {
+            echo "### ✅ APK 构建完成"
+            echo ""
+            echo "| 版本 | 体积 | 用途 |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for v in release debug; do
+            f=$(ls -1 mobile/android/app/build/outputs/apk/$v/*.apk 2>/dev/null | head -1)
+            if [ -n "$f" ]; then
+              if [ "$v" = release ]; then
+                note="R8 混淆 + 资源压缩，分发给学生"
+              else
+                note="未混淆，排查问题用"
+              fi
+              echo "| $v | $(du -h "$f" | cut -f1) | $note |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          {
+            echo ""
+            if [ "$SIGNED" = "true" ]; then
+              echo "签名：✅ 正式签名"
+            else
+              echo "签名：⚠️ debug 签名（未配置 Secret BIGDATA_KEYSTORE_BASE64）"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
