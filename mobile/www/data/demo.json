@@ -1,0 +1,236 @@
+{
+ "meta": {
+  "title": "真题示范 · 第 01 套（用户行为日志 / 数仓）",
+  "sub": "下面每一步都是在这台 CentOS 7.9 机器上真实敲出来、真实跑出来的 —— 命令、输出、结果图都是真的，不是示意图。",
+  "env": "CentOS 7.9 · Hadoop 3.1.3（伪分布式）· Hive 3.1.2 · MySQL 5.7.44 · Python 3.7.9",
+  "how": [
+   "先看命令，再看输出 —— 输出的每一行都要能对上号，看不懂就回速查手册查这条命令",
+   "每块终端下面**都跟着一张真实截图**（📷 第 N 步的真实截图）—— 命令、输出、退出码都在图里，交卷时要交的截图就该长这样，点图看大图",
+   "带 📷 的步骤是「必须截图」的点，你自己做的时候也要在这些位置截图",
+   "结果图是真的 PNG，点开可以看大图；交互图是真的 Pyecharts HTML（可缩放、悬浮看数值）",
+   "最后一步做了 Spark 与 MapReduce 的结果对照 —— 两个引擎算出一样的数，才说明前面没错",
+   "照着这个顺序做一遍，第 01 套的流程就算走通了"
+  ],
+  "note": "原始数据说明：赛题的原始数据不对外公开，这里用的 5000 行日志（省份,时间,设备,网络方式,域名）是按第 01 套的数据格式用脚本生成的模拟数据。字段结构、每一条命令、每一个结果都与真实赛题一致—— 拿到官方数据后，把 CSV 换掉、路径改一下，这套流程可以直接复用。",
+  "shots": [
+   "jps —— NameNode / DataNode / ResourceManager / NodeManager 都在（缺一个都要回去查日志）",
+   "HDFS 上传后的 ls 结果（要能看到文件名和大小，269.1 K 对得上本地文件）",
+   "redis-cli ping 返回 PONG",
+   "hive -e \"SELECT 1;\" 返回 1",
+   "Hive 查询结果（COUNT(*) = 5000，以及前 3 行原始数据）",
+   "/root/eduhq/result/ 下的结果文件与条数（3 / 24 / 12 条都要对得上）",
+   "三份统计结果的真实内容（省份 12 条、设备 3 条、时段 24 条）",
+   "MapReduce 跑完的词频结果",
+   "Spark 跑完的词频结果，以及与 MR 的 diff 对照（一致 ✓）",
+   "三张出图 PNG + 两张交互 HTML"
+  ],
+  "cost": "全程 20 步，机器上一共跑了 11.1 分钟（Hive 建表、MR、Spark 是大头）",
+  "nstep": 20
+ },
+ "steps": [
+  {
+   "p": "模块一",
+   "t": "组件进程体检",
+   "cmd": "jps",
+   "out": "116496 NodeManager\n77875 Jps\n115494 DataNode\n74406 RunJar\n3656 Kafka\n116315 ResourceManager\n115818 SecondaryNameNode\n77594 MRAppMaster\n115325 NameNode\n119087 QuorumPeerMain",
+   "rc": 0,
+   "ms": 715,
+   "shot": "shot_01.png"
+  },
+  {
+   "p": "模块一",
+   "t": "HDFS 集群容量报告",
+   "cmd": "hdfs dfsadmin -report | head -14",
+   "out": "Configured Capacity: 643929477120 (599.71 GB)\nPresent Capacity: 631233895320 (587.88 GB)\nDFS Remaining: 630953377792 (587.62 GB)\nDFS Used: 280517528 (267.52 MB)\nDFS Used%: 0.04%\nReplicated Blocks:\n\tUnder replicated blocks: 219\n\tBlocks with corrupt replicas: 0\n\tMissing blocks: 0\n\tMissing blocks (with replication factor 1): 0\n\tLow redundancy blocks with highest priority to recover: 219\n\tPending deletion blocks: 0\nErasure Coded Block Groups: \n\tLow redundancy block groups: 0",
+   "rc": 0,
+   "ms": 6284,
+   "shot": "shot_02.png"
+  },
+  {
+   "p": "模块一",
+   "t": "MySQL 版本与库列表",
+   "cmd": "mysql -uroot -p\"******\" -e \"SELECT VERSION(); SHOW DATABASES;\"",
+   "out": "mysql: [Warning] Using a password on the command line interface can be insecure.\nVERSION()\n5.7.44\nDatabase\ninformation_schema\nhive\nmysql\nperformance_schema\nsys",
+   "rc": 0,
+   "ms": 290,
+   "shot": "shot_03.png"
+  },
+  {
+   "p": "模块一",
+   "t": "Python 三件套验证",
+   "cmd": "python3 -c \"import pandas, numpy, matplotlib; print('pandas', pandas.__version__); print('numpy', numpy.__version__); print('matplotlib', matplotlib.__version__)\"",
+   "out": "pandas 1.3.4\nnumpy 1.18.5\nmatplotlib 3.5.0",
+   "rc": 0,
+   "ms": 2696,
+   "shot": "shot_04.png"
+  },
+  {
+   "p": "模块一",
+   "t": "Redis 探活（期望 PONG）",
+   "cmd": "source /etc/profile.d/bigdata.sh; /opt/bigdata/bin/redis-cli -a \"******\" ping; /opt/bigdata/bin/redis-cli -a \"******\" info server 2>/dev/null | head -3; /opt/bigdata/bin/redis-cli -a \"******\" dbsize",
+   "out": "PONG\n# Server\nredis_version:6.2.6\nredis_git_sha1:00000000\n1\nWarning: Using a password with '-a' or '-u' option on the command line interface may not be safe.\nWarning: Using a password with '-a' or '-u' option on the command line interface may not be safe.",
+   "rc": 0,
+   "ms": 128,
+   "shot": "shot_05.png"
+  },
+  {
+   "p": "模块二",
+   "t": "HDFS 建目录并上传原始日志",
+   "cmd": "hdfs dfs -mkdir -p /behavior/origin_log && hdfs dfs -put -f /root/eduhq/data/behavior2023-01-01.csv /behavior/origin_log/ && hdfs dfs -ls -h /behavior/origin_log/",
+   "out": "2026-09-29 09:13:28,086 INFO sasl.SaslDataTransferClient: SASL encryption trust check: localHostTrusted = false, remoteHostTrusted = false\nFound 1 items\n-rw-r--r--   1 root supergroup    269.1 K 2026-09-29 09:13 /behavior/origin_log/behavior2023-01-01.csv",
+   "rc": 0,
+   "ms": 16891,
+   "shot": "shot_06.png"
+  },
+  {
+   "p": "模块二",
+   "t": "查看 HDFS 上的原始日志前 5 行",
+   "cmd": "hdfs dfs -cat /behavior/origin_log/behavior2023-01-01.csv | head -5",
+   "out": "2026-09-29 09:13:38,012 INFO sasl.SaslDataTransferClient: SASL encryption trust check: localHostTrusted = false, remoteHostTrusted = false\n广东省,2023-01-01 01:19:00,手机,WIFI,www.163.com\n广东省,2023-01-01 22:11:57,电脑,WIFI,www.taobao.com\n河南省,2023-01-01 08:32:08,平板,5G,www.qq.com\n河南省,2023-01-01 07:22:39,电脑,5G,www.taobao.com\n北京市,2023-01-01 20:09:03,手机,4G,www.qq.com\ncat: Unable to write to output stream.",
+   "rc": 0,
+   "ms": 5592,
+   "shot": "shot_07.png"
+  },
+  {
+   "p": "模块二",
+   "t": "Hive 建库建外部表并统计",
+   "cmd": "hive -f /root/eduhq/step_hive.sql 2>/dev/null | grep -vE '^(WARNING|SLF4J|Hive Session|OK$|Time taken)'",
+   "out": "5000\n广东省\t2023-01-01 01:19:00\t手机\tWIFI\twww.163.com\n广东省\t2023-01-01 22:11:57\t电脑\tWIFI\twww.taobao.com\n河南省\t2023-01-01 08:32:08\t平板\t5G\twww.qq.com",
+   "rc": 0,
+   "ms": 152778,
+   "shot": "shot_08.png"
+  },
+  {
+   "p": "模块二",
+   "t": "抽取域名列为 MR 准备输入",
+   "cmd": "hdfs dfs -cat /behavior/origin_log/behavior2023-01-01.csv | awk -F',' '{print $5}' > /root/eduhq/data/domain.txt && hdfs dfs -mkdir -p /behavior/wc_in && hdfs dfs -put -f /root/eduhq/data/domain.txt /behavior/wc_in/ && hdfs dfs -rm -r -f /behavior/wc_out",
+   "out": "2026-09-29 09:23:51,353 INFO sasl.SaslDataTransferClient: SASL encryption trust check: localHostTrusted = false, remoteHostTrusted = false\n2026-09-29 09:24:01,047 INFO sasl.SaslDataTransferClient: SASL encryption trust check: localHostTrusted = false, remoteHostTrusted = false\nDeleted /behavior/wc_out",
+   "rc": 0,
+   "ms": 20498,
+   "shot": "shot_09.png"
+  },
+  {
+   "p": "模块二",
+   "t": "MapReduce 跑 wordcount（域名词频）",
+   "cmd": "hadoop jar $HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.1.3.jar wordcount /behavior/wc_in /behavior/wc_out 2>&1 | tail -6",
+   "out": "\t\tWRONG_MAP=0\n\t\tWRONG_REDUCE=0\n\tFile Input Format Counters \n\t\tBytes Read=68069\n\tFile Output Format Counters \n\t\tBytes Written=141",
+   "rc": 0,
+   "ms": 133327,
+   "shot": "shot_10.png"
+  },
+  {
+   "p": "模块二",
+   "t": "查看 MR 词频结果",
+   "cmd": "hdfs dfs -cat /behavior/wc_out/part-r-00000",
+   "out": "2026-09-29 09:26:22,717 INFO sasl.SaslDataTransferClient: SASL encryption trust check: localHostTrusted = false, remoteHostTrusted = false\nwww.163.com\t606\nwww.baidu.com\t604\nwww.bilibili.com\t623\nwww.douyin.com\t630\nwww.jd.com\t617\nwww.qq.com\t666\nwww.taobao.com\t631\nwww.zhihu.com\t623",
+   "rc": 0,
+   "ms": 3415,
+   "shot": "shot_11.png"
+  },
+  {
+   "p": "模块二",
+   "t": "Hive 可用性验证（SELECT 1）",
+   "cmd": "hive -e \"SELECT 1;\" 2>/dev/null | tail -6",
+   "out": "1",
+   "rc": 0,
+   "ms": 46320,
+   "shot": "shot_12.png"
+  },
+  {
+   "p": "模块二",
+   "t": "时段统计导出到 /root/eduhq/result/ads_hour",
+   "cmd": "hive -e \"USE comm; INSERT OVERWRITE LOCAL DIRECTORY '/root/eduhq/result/ads_hour' ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' SELECT hour(log_time) AS hh, COUNT(*) AS cnt FROM behavior_log GROUP BY hour(log_time) ORDER BY hh;\" 2>/dev/null | tail -4",
+   "out": "（这条命令本身没有屏幕输出，成功与否看下一步：文件在不在、条数对不对）",
+   "rc": 0,
+   "ms": 235110,
+   "shot": "shot_13.png"
+  },
+  {
+   "p": "模块二",
+   "t": "核对结果文件与条数",
+   "cmd": "ls -lh /root/eduhq/result/ && echo '--- 条数 ---' && wc -l /root/eduhq/result/*/000000_0",
+   "out": "total 0\ndrwxr-xr-x 2 root root 43 Sep 29 09:24 ads_device\ndrwxr-xr-x 2 root root 43 Sep 29 09:29 ads_hour\ndrwxr-xr-x 2 root root 43 Sep 29 09:20 ads_province\n--- 条数 ---\n  3 /root/eduhq/result/ads_device/000000_0\n 24 /root/eduhq/result/ads_hour/000000_0\n 12 /root/eduhq/result/ads_province/000000_0\n 39 total",
+   "rc": 0,
+   "ms": 37,
+   "shot": "shot_14.png"
+  },
+  {
+   "p": "模块二",
+   "t": "查看三份统计结果的实际内容",
+   "cmd": "for d in ads_province ads_device ads_hour; do echo \"===== $d =====\"; cat /root/eduhq/result/$d/000000_0; done",
+   "out": "===== ads_province =====\n湖北省,445\n北京市,440\n上海市,434\n河南省,430\n河北省,423\n福建省,418\n山东省,416\n四川省,410\n江苏省,407\n广东省,404\n湖南省,400\n浙江省,373\n===== ads_device =====\n手机,1701\n平板,1655\n电脑,1644\n===== ads_hour =====\n0,205\n1,201\n2,185\n3,236\n4,221\n5,232\n6,207\n7,189\n8,228\n9,220\n10,206\n11,239\n12,173\n13,220\n14,199\n15,193\n16,194\n17,205\n18,196\n19,216\n20,207\n21,197\n22,217\n23,214",
+   "rc": 0,
+   "ms": 30,
+   "shot": "shot_15.png"
+  },
+  {
+   "p": "模块三",
+   "t": "Pyecharts 出两张交互图",
+   "cmd": "python3 /root/eduhq/step_pye.py 2>&1 | tail -4",
+   "out": "两个交互 HTML 已生成",
+   "rc": 0,
+   "ms": 2215,
+   "shot": "shot_16.png"
+  },
+  {
+   "p": "模块三",
+   "t": "Matplotlib 出三张结果图",
+   "cmd": "python3 /root/eduhq/step_plot.py",
+   "out": "省份 12 设备 3 时段 24\n三张 PNG 已生成",
+   "rc": 0,
+   "ms": 3753,
+   "shot": "shot_17.png"
+  },
+  {
+   "p": "模块三",
+   "t": "核对出图产物",
+   "cmd": "ls -lh /root/eduhq/html/",
+   "out": "total 136K\n-rw-r--r-- 1 root root 4.8K Sep 29 09:26 device_pie.html\n-rw-r--r-- 1 root root  27K Sep 29 09:29 device_pie.png\n-rw-r--r-- 1 root root  56K Sep 29 09:29 hour_line.png\n-rw-r--r-- 1 root root 6.5K Sep 29 09:26 province_bar.html\n-rw-r--r-- 1 root root  35K Sep 29 09:29 province_bar.png",
+   "rc": 0,
+   "ms": 9,
+   "shot": "shot_18.png"
+  },
+  {
+   "p": "模块三",
+   "t": "Spark 跑 wordcount（域名词频）",
+   "cmd": "source /etc/profile.d/bigdata.sh; spark-submit --class org.apache.spark.examples.JavaWordCount --master local[2] --driver-memory 512m $SPARK_HOME/examples/jars/spark-examples_2.12-3.1.1.jar /behavior/wc_in/domain.txt 2>/dev/null | grep -E \"www\\.\"",
+   "out": "www.qq.com: 666\nwww.bilibili.com: 623\nwww.163.com: 606\nwww.douyin.com: 630\nwww.zhihu.com: 623\nwww.jd.com: 617\nwww.taobao.com: 631\nwww.baidu.com: 604",
+   "rc": 0,
+   "ms": 15562,
+   "shot": "shot_19.png"
+  },
+  {
+   "p": "模块三",
+   "t": "核对：MapReduce 与 Spark 结果是否一致",
+   "cmd": "source /etc/profile.d/bigdata.sh; hdfs dfs -cat /behavior/wc_out/part-r-00000 | tr \"\\t\" \" \" | sort > /root/eduhq/data/wc_mr.txt; spark-submit --class org.apache.spark.examples.JavaWordCount --master local[2] --driver-memory 512m $SPARK_HOME/examples/jars/spark-examples_2.12-3.1.1.jar /behavior/wc_in/domain.txt 2>/dev/null | grep -E \"www\\.\" | sed \"s/: / /\" | sort > /root/eduhq/data/wc_spark.txt; if diff -q /root/eduhq/data/wc_mr.txt /root/eduhq/data/wc_spark.txt >/dev/null; then echo \"MapReduce 与 Spark 结果完全一致 ✓\"; else echo \"两者不一致，diff 如下：\"; diff /root/eduhq/data/wc_mr.txt /root/eduhq/data/wc_spark.txt; fi; echo \"--- 对照表 ---\"; paste /root/eduhq/data/wc_mr.txt /root/eduhq/data/wc_spark.txt | head -8",
+   "out": "MapReduce 与 Spark 结果完全一致 ✓\n--- 对照表 ---\nwww.163.com 606\twww.163.com 606\nwww.baidu.com 604\twww.baidu.com 604\nwww.bilibili.com 623\twww.bilibili.com 623\nwww.douyin.com 630\twww.douyin.com 630\nwww.jd.com 617\twww.jd.com 617\nwww.qq.com 666\twww.qq.com 666\nwww.taobao.com 631\twww.taobao.com 631\nwww.zhihu.com 623\twww.zhihu.com 623\n2026-09-29 09:34:41,273 INFO sasl.SaslDataTransferClient: SASL encryption trust check: localHostTrusted = false, remoteHostTrusted = false",
+   "rc": 0,
+   "ms": 19055,
+   "shot": "shot_20.png"
+  }
+ ],
+ "imgs": [
+  {
+   "f": "device_pie.png",
+   "t": "设备类型占比（Matplotlib 饼图，带百分比）"
+  },
+  {
+   "f": "hour_line.png",
+   "t": "各时段浏览量（Matplotlib 折线图）"
+  },
+  {
+   "f": "province_bar.png",
+   "t": "各省份访问量（Matplotlib 柱状图，含数值标注）"
+  }
+ ],
+ "pages": [
+  {
+   "f": "device_pie.html",
+   "t": "设备类型占比（Pyecharts 交互环形图）"
+  },
+  {
+   "f": "province_bar.html",
+   "t": "各省份访问量（Pyecharts 交互柱状图，可缩放）"
+  }
+ ]
+}

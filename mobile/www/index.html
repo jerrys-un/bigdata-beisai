@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>大数据应用与服务 · 闯关学习站</title>
+<link rel="stylesheet" href="assets/style.css">
+
+<!-- PWA / 添加到主屏幕（手机端当成 App 用） -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#4f46e5">
+<link rel="icon" href="icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="大数据备赛">
+<meta name="format-detection" content="telephone=no">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="#/home">
+    <span class="logo">BD</span>
+    <span class="brand-text"><b>大数据应用与服务</b><i>闯关学习站 · 192.168.1.100</i></span>
+  </a>
+
+  <form class="search" id="searchForm" autocomplete="off">
+    <input type="text" id="searchInput" placeholder="搜知识点 / 配置 / 赛题 / 题目…">
+    <button type="submit">搜索</button>
+  </form>
+
+  <nav class="nav" id="nav">
+    <a href="#/home" data-r="home">学习地图</a>
+    <a href="#/race" data-r="race">认识赛场</a>
+    <a href="#/concept" data-r="concept">基础概念</a>
+    <a href="#/knowledge" data-r="knowledge">理论闯关</a>
+    <a href="#/config" data-r="config">配置实操</a>
+    <a href="#/skill" data-r="skill">技能实操</a>
+    <a href="#/exam" data-r="exam">赛题实战</a>
+    <a href="#/demo" data-r="demo">真题示范</a>
+    <a href="#/tool" data-r="tool">速查手册</a>
+    <a href="#/me" id="me" title="切换使用者">👤 未选择</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="view" id="view"><div class="loading">正在加载…</div></main>
+</div>
+
+<button id="toTop" title="回到顶部">↑</button>
+
+<footer class="foot">
+  <span>内容来源：资料库「大数据」文件夹（赛项规程 / ZZ052 十套赛题 / 理论题库 / 实训范例）+ 本机 CentOS 7.9 真实环境</span>
+  <span class="foot-right">纯静态离线站点 · 进度保存在本机浏览器</span>
+</footer>
+
+<script src="data/env.js"></script>
+<script src="data/exam.js"></script>
+<script src="data/knowledge.js"></script>
+<script src="data/configs.js"></script>
+<script src="data/quiz.js"></script>
+<script src="data/skills.js"></script>
+<script src="data/concepts.js"></script>
+<script src="data/demo.js"></script>
+<script src="data/gate.js"></script>
+<script src="assets/app.js"></script>
+<script>
+// 离线缓存：只在 https（GitHub Pages / 正式发布）下注册；局域网 http 不支持 SW，静默跳过
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  });
+}
+// App 内（Capacitor WebView）把状态栏下方留出来
+if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+  document.documentElement.classList.add('native-app');
+}
+</script>
+</body>
+</html>

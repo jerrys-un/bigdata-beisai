@@ -1,0 +1,13 @@
+{
+	"appId": "cn.bigdata.beisai",
+	"appName": "大数据备赛",
+	"webDir": "www",
+	"server": {
+		"androidScheme": "https"
+	},
+	"android": {
+		"backgroundColor": "#f4f6fb",
+		"allowMixedContent": false,
+		"webContentsDebuggingEnabled": false
+	}
+}

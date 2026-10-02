@@ -1,0 +1,1 @@
+window.BD=window.BD||{};window.BD.gate={"on": false};

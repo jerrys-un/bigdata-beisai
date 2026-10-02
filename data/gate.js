@@ -1,0 +1,1 @@
+window.BD=window.BD||{};window.BD.gate={"on": true, "hash": "94150766b347706e3a6b46d70c59fb11593d6972f493ec5a57cb80b23f837dda", "hint": "口令找老师要"};

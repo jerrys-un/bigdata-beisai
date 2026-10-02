@@ -1,0 +1,1132 @@
+# -*- coding: utf-8 -*-
+"""技能实操库：按考核模块组织的可运行代码/命令卡片
+
+来源：资料库「大数据」文件夹内的 ZZ052 样题及答案、ZZ052 十套赛题、《大数据应用》、
+《数据爬取》、《预测分析》，并结合本机 CentOS 7.9 环境改写（路径与口令按本机实际）。
+每项 code 均可在本机直接改动后运行。
+"""
+
+SKILLS = [
+    # ============ 1. Linux 与集群基础 ============
+    {
+        "id": "linux", "name": "Linux 与集群基础", "icon": "🐧",
+        "desc": "主机名、免密、环境变量、分发、进程核对——所有后续操作的前置动作",
+        "cards": [
+            {
+                "t": "三节点主机名与免密登录",
+                "lang": "bash",
+                "src": "ZZ052 样题 04 · 子任务一",
+                "d": [
+                    "三台节点分别命名 master / slave1 / slave2，改完重连终端生效",
+                    "master 生成密钥后用 ssh-copy-id 分发公钥，自己也要拷一份（master 也是 datanode）",
+                    "验证标准： ssh slave1 不需要输密码",
+                ],
+                "code": """# 1) 三台机器上分别执行主机命名
+hostnamectl set-hostname master    # slave1 / slave2 同理
+
+# 2) host 解析（三台都写，追加到 /etc/hosts）
+cat >> /etc/hosts <<'EOF'
+10.30.11.44  master
+10.30.11.45  slave1
+10.30.11.46  slave2
+EOF
+
+# 3) master 上生成密钥并分发（含自己）
+ssh-keygen -t rsa          # 一路回车
+ssh-copy-id master
+ssh-copy-id slave1
+ssh-copy-id slave2
+
+# 4) 验证：不输密码直接登录即为成功
+ssh slave1 'hostname'""",
+            },
+            {
+                "t": "JDK 环境变量与 scp 分发",
+                "lang": "bash",
+                "src": "ZZ052 样题 04 · 子任务一",
+                "d": [
+                    "/etc/profile 末尾写 JAVA_HOME，PATH 要保留原来的 $PATH",
+                    "写完必须 source /etc/profile，否则当前终端不生效",
+                    "分发用 scp -r，目标路径不存在会报错，先 ssh 建目录",
+                ],
+                "code": """# 解压（按实际包名）
+tar zxvf jdk-8u202-linux-x64.tar.gz -C /opt/module
+
+# 环境变量：三台都要写
+cat >> /etc/profile <<'EOF'
+export JAVA_HOME=/opt/module/jdk1.8.0_202
+export PATH=$PATH:$JAVA_HOME/bin
+export CLASSPATH=.:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+EOF
+source /etc/profile
+
+# 验证
+java -version
+javac
+
+# 分发到从节点
+scp -r /opt/module/jdk1.8.0_202 root@slave1:/opt/module/
+scp -r /opt/module/jdk1.8.0_202 root@slave2:/opt/module/""",
+            },
+            {
+                "t": "启动集群与 jps 核对",
+                "lang": "bash",
+                "src": "ZZ052 样题 04 · 子任务一",
+                "d": [
+                    "格式化只在第一次做：反复执行会清空 NameNode 数据",
+                    "启动顺序 HDFS → YARN → 历史服务",
+                    "jps 是排障第一手段：master 应有 NameNode/ResourceManager/SecondaryNameNode，slave 应有 DataNode/NodeManager",
+                    "本机伪分布式可直接用 bigdata-ctl start hdfs",
+                ],
+                "code": """# 首次初始化（只做一次！）
+hdfs namenode -format
+
+# 启动
+start-dfs.sh
+start-yarn.sh
+mr-jobhistory-daemon.sh start historyserver
+
+# 逐节点核对进程
+jps
+
+# 常用排障
+hdfs dfsadmin -report          # 看 DataNode 是否活着
+hdfs dfsadmin -safemode get    # 建不了目录先看是不是安全模式
+yarn node -list                # 看 NodeManager 是否注册""",
+            },
+        ],
+    },
+
+    # ============ 2. MySQL 数据库运维 ============
+    {
+        "id": "mysql", "name": "MySQL 数据库运维", "icon": "🗄️",
+        "desc": "2026 版扩到 6 个子任务，分值最集中的区域之一",
+        "cards": [
+            {
+                "t": "远程连接、建用户、授权",
+                "lang": "sql",
+                "src": "《大数据应用》三 / ZZ052 样题 04 · 任务二",
+                "d": [
+                    "改 host 或 GRANT 之后必须 FLUSH PRIVILEGES 才生效",
+                    "MySQL 5.7 起 CREATE USER 与 GRANT 可以分开写，也可合并到 GRANT 里",
+                    "⚠️ 网上流传的写法 `create users 'eduadmin'@'%'` 少了 user 的 s，会报语法错",
+                    "本机 root 口令存放在 /root/.mysql_root_password（权限 600）",
+                ],
+                "code": """-- 允许 root 远程登录
+USE mysql;
+UPDATE user SET host='%' WHERE user='root';
+FLUSH PRIVILEGES;
+
+-- 建用户（CREATE USER 是单数 user，不是 users）
+CREATE USER 'eduadmin'@'%' IDENTIFIED BY 'Edu@2026';
+
+-- 授权：库名.表名，*.* 表示全部库表
+GRANT ALL PRIVILEGES ON education.* TO 'eduadmin'@'%';
+FLUSH PRIVILEGES;
+
+-- 查看已有用户与权限
+SELECT user, host FROM mysql.user;
+SHOW GRANTS FOR 'eduadmin'@'%';""",
+            },
+            {
+                "t": "建库（字符集）与建表",
+                "lang": "sql",
+                "src": "ZZ052 样题 04 · 子任务二",
+                "d": [
+                    "字符集一定用 utf8mb4（utf8 是 3 字节，emoji 与部分汉字会乱码）",
+                    "主键主键自增用 AUTO_INCREMENT，数值用 DECIMAL 存金额避免精度丢失",
+                    "建表后 SHOW CREATE TABLE 检查字符集与引擎",
+                ],
+                "code": """CREATE DATABASE education
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+
+USE education;
+
+CREATE TABLE hotel_all (
+  id          INT(10)      NOT NULL AUTO_INCREMENT COMMENT '酒店编号',
+  hotel_name  VARCHAR(50)  COMMENT '酒店名称',
+  city        VARCHAR(50)  COMMENT '城市',
+  province    VARCHAR(50)  COMMENT '省份',
+  level       VARCHAR(50)  COMMENT '星级',
+  room_num    INT(10)      COMMENT '房间数',
+  score       DOUBLE       COMMENT '评分',
+  shopping    VARCHAR(50)  COMMENT '商圈',
+  PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 检查
+SHOW CREATE TABLE hotel_all\\G
+SHOW TABLES;""",
+            },
+            {
+                "t": "增删改查：赛题高频句式",
+                "lang": "sql",
+                "src": "ZZ052 样题 04 / 第 02、07 套",
+                "d": [
+                    "DELETE / UPDATE 一定要带 WHERE，赛题里常指定 id",
+                    "多条件用 AND / OR，模糊匹配用 LIKE '%关键字%'",
+                    "排序 ORDER BY ... DESC，取前 N 用 LIMIT N",
+                ],
+                "code": """-- 删：删除 id 为 25 的酒店
+DELETE FROM hotel_all WHERE id = 25;
+
+-- 改：把 id=30 的评论评分改成 5
+UPDATE comment_all SET score = 5 WHERE id = 30;
+
+-- 查：五星级酒店、按评分倒序取前十
+SELECT hotel_name, city, score
+FROM hotel_all
+WHERE level = '五星级'
+ORDER BY score DESC
+LIMIT 10;
+
+-- 分组统计：各城市酒店数量
+SELECT city, COUNT(*) AS cnt, AVG(score) AS avg_score
+FROM hotel_all
+GROUP BY city
+ORDER BY cnt DESC;
+
+-- 多条件：成绩区间 + 模糊匹配
+SELECT * FROM learning_record
+WHERE quiz_score BETWEEN 75 AND 80
+  AND course_id LIKE 'KC%';""",
+            },
+            {
+                "t": "数据导入导出（2026 新增考点）",
+                "lang": "bash",
+                "src": "2026 规程新增子任务",
+                "d": [
+                    "导出用 mysqldump，导入用 source 或 < 重定向",
+                    "LOAD DATA 比逐条 INSERT 快很多，注意字段分隔符与本地文件开关 LOCAL",
+                    "CSV 首行标题用 IGNORE 1 LINES 跳过",
+                ],
+                "code": """# 导出：库结构 + 数据
+mysqldump -uroot -p education > education.sql
+# 只导出某一张表
+mysqldump -uroot -p education hotel_all > hotel_all.sql
+
+# 导入
+mysql -uroot -p education < education.sql
+# 已进入 mysql 客户端时：
+-- SOURCE /root/education.sql;
+
+# CSV 导入（字段逗号分隔、换行分隔行、跳过标题行）
+LOAD DATA LOCAL INFILE '/root/hotel.csv'
+INTO TABLE hotel_all
+FIELDS TERMINATED BY ',' ENCLOSED BY '"'
+LINES TERMINATED BY '\\n'
+IGNORE 1 LINES;
+
+# 查询结果导出成文件
+SELECT * FROM hotel_all
+INTO OUTFILE '/tmp/hotel_out.csv'
+FIELDS TERMINATED BY ',' LINES TERMINATED BY '\\n';""",
+            },
+        ],
+    },
+
+    # ============ 3. pandas 数据清洗 ============
+    {
+        "id": "pandas", "name": "pandas 数据清洗", "icon": "🧹",
+        "desc": "ZZ052 第 03、04、08、10 套必考，四类高频操作要练到肌肉记忆",
+        "cards": [
+            {
+                "t": "读取与五步清洗（文件名带条数）",
+                "lang": "python",
+                "src": "《大数据应用》四 · 数据处理",
+                "d": [
+                    "赛题常要求结果文件名带处理条数，如 cleaned_data_c1_12.csv",
+                    "判空要用 isna()，数值为 0 与缺失是两回事",
+                    "时间标准化用 pd.to_datetime(errors='coerce')，无法解析的会变成 NaT",
+                ],
+                "code": """import pandas as pd
+
+df = pd.read_csv('learning_data.csv')
+print(df.head(10))          # 按题目要求打印前 10 行
+
+# (1) 删除学习时长为空或为 0 的记录
+before = len(df)
+df_c1 = df[df['学习时长(分钟)'].notna() & (df['学习时长(分钟)'] > 0)]
+n1 = before - len(df_c1)
+df_c1.to_csv(f'cleaned_data_c1_{n1}.csv', index=False, encoding='utf-8-sig')
+
+# (2) 删除测验成绩异常（>100 或 <0）
+before = len(df_c1)
+df_c2 = df_c1[(df_c1['测验成绩'] >= 0) & (df_c1['测验成绩'] <= 100)]
+n2 = before - len(df_c2)
+df_c2.to_csv(f'cleaned_data_c2_{n2}.csv', index=False, encoding='utf-8-sig')
+
+# (3) 时间格式标准化
+raw_len = len(df_c2)
+df_c3 = df_c2.copy()
+df_c3['最后学习时间'] = pd.to_datetime(df_c3['最后学习时间'], errors='coerce')
+df_c3.to_csv(f'cleaned_data_c3_{raw_len}.csv', index=False, encoding='utf-8-sig')
+
+# (4) 完成进度超过 100% 的封顶为 100
+df_c4 = df_c3.copy()
+df_c4['完成进度'] = df_c4['完成进度'].apply(lambda x: min(x, 100))
+
+# (5) 删除重复记录
+before = len(df_c4)
+df_c5 = df_c4.drop_duplicates()
+n5 = before - len(df_c5)
+df_c5.to_csv(f'cleaned_data_c5_{n5}.csv', index=False, encoding='utf-8-sig')
+
+# 提示：写中文 CSV 给 Excel 用，必须 encoding='utf-8-sig'，否则乱码""",
+            },
+            {
+                "t": "缺失值：删除 / 填充 / 众数",
+                "lang": "python",
+                "src": "ZZ052 第 03、08 套",
+                "d": [
+                    "dropna(thresh=n) 是「至少有 n 个非空列才保留」，赛题常说「删除缺失值大于 3 个的列」——注意是列不是行",
+                    "按业务规则填：新用户填 direct、老用户填 seo 这类需要布尔索引定位",
+                    "众数用 mode()[0]，注意空集合会 IndexError",
+                ],
+                "code": """import pandas as pd
+
+df = pd.read_csv('data.csv')
+
+# 查看每列缺失个数（第 05 套直接考这一问）
+null_cnt = df.isnull().sum().reset_index()
+null_cnt.columns = ['Column', 'Null_count']
+null_cnt.to_csv('result_1.csv', index=False)
+
+# 删除缺失值个数 > 3 的列
+cols_to_drop = [c for c in df.columns if df[c].isnull().sum() > 3]
+df2 = df.drop(columns=cols_to_drop)
+
+# 删除某一列为空的行（如商圈为空）
+df3 = df2[df2['商圈'].notna()]
+
+# 空值替换为 0 / 均值
+df3['懂事'] = df3['页面停留'].fillna(0)
+mean_score = df3['评分'].mean()
+df3['评分'] = df3['评分'].fillna(round(mean_score, 1))
+
+# 按规则填充
+df3.loc[df3['用户类型'] == 'new', 'source'] = 'direct'
+df3.loc[df3['用户类型'] == 'old', 'source'] = 'seo'
+
+# 缺失值填众数
+mode_val = df3['device'].mode()[0]
+df3['device'] = df3['device'].fillna(mode_val)""",
+            },
+            {
+                "t": "条件筛选与正则处理",
+                "lang": "python",
+                "src": "ZZ052 第 04、08 套",
+                "d": [
+                    "多条件要用 & 和 |，每个条件都得加括号",
+                    "字符串包含用 str.contains()，排除用 ~ 取反",
+                    "区间值取平均（如「1000-2000」）要 split 后算均值 astype(float)",
+                ],
+                "code": """import pandas as pd
+import numpy as np
+
+df = pd.read_csv('shopping.csv')
+
+# 多条件删除：库存 <10 或 >10000
+df = df[(df['库存'] >= 10) & (df['库存'] <= 10000)]
+
+# 删除包含指定关键字的记录（排除要用 ~）
+bad = ['刷单', '捡漏', '女装']
+mask = df['商品名称'].str.contains('|'.join(bad), na=False)
+df = df[~mask]
+
+# 区间价格取平均数：「1000-2000」→ 1500
+def range_avg(x):
+    if isinstance(x, str) and '-' in x:
+        parts = [float(p) for p in x.split('-')]
+        return sum(parts) / len(parts)
+    return pd.to_numeric(x, errors='coerce')
+
+df['价格'] = df['价格'].apply(range_avg)
+
+# 删除年龄异常值
+df = df[df['age'] < 100]
+
+# 正则：把页面文字信息转成数字 1
+df['page_num'] = df['page'].replace(r'^[A-Za-z]+$', 1, regex=True)""",
+            },
+            {
+                "t": "分组统计与排序（出图前的最后一步）",
+                "lang": "python",
+                "src": "ZZ052 第 03、07、10 套",
+                "d": [
+                    "value_counts() 最常用：占比题用它，再除以总数得百分比",
+                    "groupby + agg 一次算多个指标",
+                    "nlargest / nsmallest 直接取 TOP N，比 sort_values().head() 更快",
+                ],
+                "code": """import pandas as pd
+
+df = pd.read_csv('hotel.csv')
+
+# 各商圈酒店总数，倒序前五
+top5 = df.groupby('商圈').size().sort_values(ascending=False).head(5)
+
+# 各商圈平均房间数，正序前五
+rooms = df.groupby('商圈')['房间数'].mean().sort_values().head(5)
+
+# 所有五星级酒店的平均评分
+five = df[df['星级'] == '五星级']['评分'].mean()
+
+# 同一维度看多个指标
+agg = df.groupby('商圈').agg(
+    酒店数=('id', 'count'),
+    平均评分=('评分', 'mean'),
+    平均房间数=('房间数', 'mean')
+).round(2)
+
+# 占比（画饼图用）
+share = df['设备类型'].value_counts()
+pct = (share / share.sum() * 100).round(2)
+
+print(top5)
+print(agg.sort_values('酒店数', ascending=False))""",
+            },
+        ],
+    },
+
+    # ============ 4. 数据标注 ============
+    {
+        "id": "label", "name": "数据标注", "icon": "🏷️",
+        "desc": "规则标注用 pandas apply，海量文本用 MapReduce",
+        "cards": [
+            {
+                "t": "按业务规则分类标注",
+                "lang": "python",
+                "src": "《大数据应用》四 · 投入度标注",
+                "d": [
+                    "核心写法：定义 classify 函数 + df.apply(func, axis=1)",
+                    "多区间判断要注意边界包含（>= 与 > 的差别）",
+                    "新增列后导出，字段名要跟题目要求一致",
+                ],
+                "code": """import pandas as pd
+
+df = pd.read_csv('learning_data.csv')
+
+def classify_engagement(row):
+    # 高度投入：时长 > 60 且互动 > 5
+    if row['学习时长(分钟)'] > 60 and row['互动次数'] > 5:
+        return '高度投入'
+    # 中度投入：时长 30~60 或互动 3~5
+    elif 30 <= row['学习时长(分钟)'] <= 60 or 3 <= row['互动次数'] <= 5:
+        return '中度投入'
+    else:
+        return '低度投入'
+
+df['学习投入度'] = df.apply(classify_engagement, axis=1)
+
+print(df[['用户ID', '学习时长(分钟)', '互动次数', '学习投入度']].head())
+df.to_csv('engagement_level.csv', index=False, encoding='utf-8-sig')""",
+            },
+            {
+                "t": "MapReduce 批标注：空值统一、字段归一",
+                "lang": "java",
+                "src": "ZZ052 第 02 套 · 子任务",
+                "d": [
+                    "Mapper 里按分隔符切分，缺字段统一打「未获取」",
+                    "时间格式在 Mapper 里用 SimpleDateFormat 归一",
+                    "输出保证每行字段数一致，否则下游建表会错位",
+                ],
+                "code": """public static class CleanMapper extends Mapper<LongWritable, Text, Text, NullWritable> {
+
+    @Override
+    protected void map(LongWritable key, Text value, Context context)
+            throws IOException, InterruptedException {
+
+        String line = value.toString();
+        String[] fields = line.split("\\\\t", -1);   // -1 保留末尾空字段
+
+        StringBuilder sb = new StringBuilder();
+        // 约定第 3、5 个字段允许为空
+        for (int i = 0; i < fields.length; i++) {
+            String v = fields[i].trim();
+            if (v.isEmpty()) {
+                v = "未获取";          // 空字段统一打标
+            }
+            if (i == 4) {
+                v = normalizeTime(v);  // 统一时间格式
+            }
+            sb.append(v).append("\\\\t");
+        }
+        context.write(new Text(sb.toString().trim()), NullWritable.get());
+    }
+
+    private String normalizeTime(String t) {
+        // 2023/1/5 9:03  ->  2023-01-05 09:03:00
+        return t.replace("/", "-").replaceAll("^(\\\\d{4})-(\\\\d)-", "$1-0$2-");
+    }
+}
+// 提交作业：
+// hadoop jar clean.jar CleanDriver /source/logs/sms_so_failure_logs /source/mr/sms_so_failure_logs""",
+            },
+        ],
+    },
+
+    # ============ 5. 数据采集 ============
+    {
+        "id": "collect", "name": "数据采集", "icon": "📥",
+        "desc": "Flume 传日志、Sqoop 导关系库、Scrapy 爬网页三条路线",
+        "cards": [
+            {
+                "t": "Flume：把 Hadoop 日志传进 HDFS",
+                "lang": "properties",
+                "src": "ZZ052 样题 04 · 子任务二",
+                "d": [
+                    "source 用 exec + tail -F 跟踪日志增量（tail -f 断了不续，必须用 -F）",
+                    "sink 用 hdfs，路径支持 %Y%m%d%H%M%S 时间戳占位",
+                    "启动后要去 HDFS /tmp/flume 下确认至少生成 5 条内容",
+                ],
+                "code": """# conf/flume-conf-hdfs.properties
+# 定义 agent 三大件
+a1.sources = r1
+a1.sinks = k1
+a1.channels = c1
+
+# source：跟踪一个日志文件的新增内容
+a1.sources.r1.type = exec
+a1.sources.r1.command = tail -F /opt/hadoop/logs/hadoop-root-datanode-master.log
+
+# sink：写 HDFS，按时间分文件
+a1.sinks.k1.type = hdfs
+a1.sinks.k1.hdfs.path = hdfs://master:9000/tmp/flume/%Y%m%d%H%M%S.log
+a1.sinks.k1.hdfs.useLocalTimeStamp = true
+a1.sinks.k1.hdfs.fileType = DataStream
+
+# channel：内存通道，容量大于单批事务量
+a1.channels.c1.type = memory
+a1.channels.c1.capacity = 10000
+a1.channels.c1.transactionCapacity = 1000
+
+# 绑定
+a1.sources.r1.channels = c1
+a1.sinks.k1.channel = c1
+
+# 启动：
+# flume-ng agent -c conf -n a1 -f conf/flume-conf-hdfs.properties -Dflume.root.logger=INFO,console
+# 验证：
+# hdfs dfs -ls /tmp/flume && hdfs dfs -cat /tmp/flume/* | head -5""",
+            },
+            {
+                "t": "Sqoop：MySQL ↔ HDFS/Hive",
+                "lang": "bash",
+                "src": "ZZ052 第 09 套",
+                "d": [
+                    "导入用 import，导出用 export，方向别搞反（export 是 HDFS → MySQL）",
+                    "需要把 mysql-connector-java 的 jar 放到 $SQOOP_HOME/lib",
+                    "--fields-terminated-by 决定 HDFS 里分隔符，要与 Hive 建表时一致",
+                ],
+                "code": """# MySQL → HDFS（全表导入）
+sqoop import \\
+  --connect jdbc:mysql://master:3306/education \\
+  --username root --password 'Honghe@2026' \\
+  --table hotel_all \\
+  --target-dir /source/hotel \\
+  --fields-terminated-by '\\t' \\
+  --m 1
+
+# 按查询条件导入
+sqoop import \\
+  --connect jdbc:mysql://master:3306/education \\
+  --username root --password 'Honghe@2026' \\
+  --query 'SELECT id, hotel_name, score FROM hotel_all WHERE $CONDITIONS' \\
+  --target-dir /source/hotel_top \\
+  --m 1
+
+# HDFS → MySQL（导出）
+sqoop export \\
+  --connect jdbc:mysql://master:3306/education \\
+  --username root --password 'Honghe@2026' \\
+  --table result_tbl \\
+  --export-dir /user/hive/warehouse/result \\
+  --fields-terminated-by '\\t'
+
+# MySQL → Hive（直接建 Hive 表）
+sqoop import \\
+  --connect jdbc:mysql://master:3306/education \\
+  --username root --password 'Honghe@2026' \\
+  --table hotel_all --hive-import --hive-table ods_hotel --m 1""",
+            },
+            {
+                "t": "Scrapy 爬取 25 字段酒店详情",
+                "lang": "python",
+                "src": "ZZ052 第 10 套 / 《数据爬取》",
+                "d": [
+                    "流程：startproject → genspider → 写 parse → Item/Pipeline 清洗 → FEED 存 CSV",
+                    "字段多时先在 items.py 定义齐全，别用裸 dict",
+                    "翻页用 response.follow(next_page, callback=self.parse)",
+                    "⚠️ 本机注意：scrapy 需装 2.6.2（支持 Python 3.7 的最后稳定版）",
+                ],
+                "code": """# spiders/hotel_spider.py
+import scrapy
+
+class HotelSpider(scrapy.Spider):
+    name = 'hotel'
+    start_urls = ['https://example.com/hotel/list']
+
+    def parse(self, response):
+        for li in response.css('div.hotel-item'):
+            yield {
+                '省份':   li.css('span.province::text').get(default='').strip(),
+                '名称':   li.css('h3.name::text').get(default='').strip(),
+                '城市':   li.css('span.city::text').get(default='').strip(),
+                '商圈':   li.css('span.shopping::text').get(default='').strip(),
+                '星级':   li.css('span.level::text').get(default='').strip(),
+                '房间数': li.css('span.rooms::text').get(default='0').strip(),
+                '评论数': li.css('span.comments::text').get(default='0').strip(),
+                '评分':   li.css('span.score::text').get(default='0').strip(),
+            }
+        # 翻页
+        next_page = response.css('a.next::attr(href)').get()
+        if next_page:
+            yield response.follow(next_page, callback=self.parse)
+
+# settings.py 关键配置
+# FEED_FORMAT = 'csv'
+# FEED_URI = 'hotel.csv'
+# DOWNLOAD_DELAY = 1          # 限速，避免被封
+# USER_AGENT = 'Mozilla/5.0'
+
+# 运行：scrapy crawl hotel -o hotel.csv""",
+            },
+        ],
+    },
+
+    # ============ 6. MapReduce ============
+    {
+        "id": "mr", "name": "MapReduce 编程", "icon": "⚙️",
+        "desc": "计数、排序、去重三类题型，模板背下来考场直接套",
+        "cards": [
+            {
+                "t": "标准 WordCount 骨架与提交",
+                "lang": "java",
+                "src": "通用模板（多套通用）",
+                "d": [
+                    "三个类：Mapper / Reducer / Driver（含 main）",
+                    "输出类型：Mapper<Text, IntWritable>，Reducer<Text, IntWritable, Text, IntWritable>",
+                    "⚠️ 输入文件名不能以 _ 或 . 开头，Hadoop 会静默忽略这些文件",
+                    "打包后 hadoop jar 运行，输出目录必须不存在",
+                ],
+                "code": """public class WordCount {
+
+  // Mapper：一行切成单词，每个单词记 1
+  public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable> {
+    private final static IntWritable one = new IntWritable(1);
+    private Text word = new Text();
+
+    public void map(Object key, Text value, Context context)
+            throws IOException, InterruptedException {
+      StringTokenizer itr = new StringTokenizer(value.toString());
+      while (itr.hasMoreTokens()) {
+        word.set(itr.nextToken());
+        context.write(word, one);
+      }
+    }
+  }
+
+  // Reducer：同一个 key 累加
+  public static class IntSumReducer extends Reducer<Text, IntWritable, Text, IntWritable> {
+    private IntWritable result = new IntWritable();
+
+    public void reduce(Text key, Iterable<IntWritable> values, Context context)
+            throws IOException, InterruptedException {
+      int sum = 0;
+      for (IntWritable val : values) sum += val.get();
+      result.set(sum);
+      context.write(key, result);
+    }
+  }
+
+  public static void main(String[] args) throws Exception {
+    Configuration conf = new Configuration();
+    Job job = Job.getInstance(conf, "word count");
+    job.setJarByClass(WordCount.class);
+    job.setMapperClass(TokenizerMapper.class);
+    job.setCombinerClass(IntSumReducer.class);   // 本地先聚合一次，省网络
+    job.setReducerClass(IntSumReducer.class);
+    job.setOutputKeyClass(Text.class);
+    job.setOutputValueClass(IntWritable.class);
+    FileInputFormat.addInputPath(job, new Path(args[0]));
+    FileOutputFormat.setOutputPath(job, new Path(args[1]));
+    System.exit(job.waitForCompletion(true) ? 0 : 1);
+  }
+}
+// hadoop jar wc.jar WordCount /input/wc.txt /output/wc
+// ⚠️ 输入文件别叫 _wc.txt 或 .wc.txt，会被 FileInputFormat 静默过滤""",
+            },
+            {
+                "t": "按某字段统计并降序取 TOP N",
+                "lang": "java",
+                "src": "ZZ052 第 04、06 套",
+                "d": [
+                    "先用一个 Job 计数，再用第二个 Job 做全排序（倒序用 KeyComparator）",
+                    "简单做法：计数后 hadoop fs -cat 出来用 sort -k2 -nr | head",
+                    "多字段作为 key 时实现 WritableComparable 或用拼接字符串",
+                ],
+                "code": """// 需求：统计每种「买家印象」出现的次数，按次数降序输出前 10
+// 做法一（两行命令搞定，赛题够用）：
+// hadoop jar impression.jar Impression /input/mobile.txt /output/imp
+// hadoop fs -cat /output/imp/part-* | sort -k2 -nr | head -10
+
+public static class ImpMapper extends Mapper<Object, Text, Text, IntWritable> {
+  private final static IntWritable one = new IntWritable(1);
+
+  public void map(Object key, Text value, Context context)
+          throws IOException, InterruptedException {
+    String[] f = value.toString().split("\\\\t", -1);
+    if (f.length > 3) {
+      String[] impressions = f[3].split(",");   // 第 4 个字段是印象列表
+      for (String imp : impressions) {
+        String clean = imp.trim();
+        if (!clean.isEmpty()) context.write(new Text(clean), one);
+      }
+    }
+  }
+}
+
+// Reducer 与 WordCount 完全一致（IntSumReducer 复用即可）""",
+            },
+        ],
+    },
+
+    # ============ 7. Hive 数仓 ============
+    {
+        "id": "hive", "name": "Hive 数仓", "icon": "🐝",
+        "desc": "外部表 + load data + 分区，几乎每套都考",
+        "cards": [
+            {
+                "t": "建库、外部表、load data",
+                "lang": "sql",
+                "src": "ZZ052 第 01、02、03 套",
+                "d": [
+                    "EXTERNAL TABLE 的外部表删表不删数据，赛题常用",
+                    "ROW FORMAT DELIMITED FIELDS TERMINATED BY '\\t' 要与数据实际分隔符一致",
+                    "LOAD DATA INPATH 会移动源文件，LOCAL INPATH 才保留本地文件",
+                    "先 DROP 再 CREATE，避免重复跑题时表已存在",
+                ],
+                "code": """CREATE DATABASE IF NOT EXISTS comm;
+USE comm;
+
+-- 外部表：指定 HDFS 存储路径与分隔符
+DROP TABLE IF EXISTS dim_date;
+CREATE EXTERNAL TABLE dim_date (
+  date_key   STRING COMMENT '日期',
+  year       INT,
+  month      INT,
+  day        INT,
+  is_holiday INT
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '\\t'
+STORED AS TEXTFILE
+LOCATION '/behavior/dim/dim_date';
+
+-- 导入数据（OVERWRITE 覆盖，省得重复跑出错）
+LOAD DATA INPATH '/behavior/origin_log/dim_date.txt' OVERWRITE INTO TABLE dim_date;
+
+-- 检查前三行与总行数（赛题固定动作）
+SELECT * FROM dim_date LIMIT 3;
+SELECT COUNT(*) FROM dim_date;""",
+            },
+            {
+                "t": "分区表与常用统计查询",
+                "lang": "sql",
+                "src": "ZZ052 第 01、02 套",
+                "d": [
+                    "PARTITIONED BY 的字段不能出现在建表字段列表里",
+                    "动态分区需要开 hive.exec.dynamic.partition=true",
+                    "统计结果导出用 INSERT OVERWRITE DIRECTORY（本机注意路径权限）",
+                ],
+                "code": """-- 分区表：按天分区的日志表
+CREATE EXTERNAL TABLE ods_behavior (
+  user_id    STRING,
+  url        STRING,
+  device     STRING
+)
+PARTITIONED BY (dt STRING)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+LOCATION '/behavior/ods/ods_behavior';
+
+-- 动态分区写入
+SET hive.exec.dynamic.partition = true;
+SET hive.exec.dynamic.partition.mode = nonstrict;
+
+INSERT OVERWRITE TABLE ods_behavior PARTITION (dt)
+SELECT user_id, url, device, dt FROM src_behavior;
+
+-- 常用统计
+SELECT province, COUNT(*) AS pv
+FROM ods_behavior
+GROUP BY province
+ORDER BY pv DESC;
+
+-- 结果导出到 HDFS 目录
+INSERT OVERWRITE DIRECTORY '/root/eduhq/result/ads_province'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+SELECT province, COUNT(*) FROM ods_behavior GROUP BY province;""",
+            },
+        ],
+    },
+
+    # ============ 8. Spark ============
+    {
+        "id": "spark", "name": "Spark 计算", "icon": "⚡",
+        "desc": "本地练习模式，本机 4G 内存要压小 driver",
+        "cards": [
+            {
+                "t": "PySpark 读 CSV 与 WordCount",
+                "lang": "python",
+                "src": "通用模板 / 本机环境",
+                "d": [
+                    "本机跑用 local 模式，内存受限：--driver-memory 512m 是下限",
+                    "读 CSV 带表头用 header=True，中文路径加 encoding",
+                    "结果写文件用 coalesce(1) 合并成单文件，便于提交",
+                ],
+                "code": """from pyspark.sql import SparkSession
+from pyspark.sql.functions import desc, count, avg
+
+spark = (SparkSession.builder
+         .appName('HotelAnalysis')
+         .master('local[*]')
+         .getOrCreate())
+
+# 读 CSV
+df = spark.read.csv('hotel.csv', header=True, inferSchema=True)
+df.printSchema()
+df.show(5, truncate=False)
+
+# SQL 风格统计：各城市酒店数与平均评分
+res = (df.groupBy('city')
+         .agg(count('*').alias('cnt'), avg('score').alias('avg_score'))
+         .orderBy(desc('cnt')))
+res.show()
+
+# 结果输出为单文件
+res.coalesce(1).write.mode('overwrite').csv('out/city_stat', header=True)
+
+spark.stop()
+# 本机提交：
+# spark-submit --driver-memory 512m --executor-memory 512m --executor-cores 1 hotel.py""",
+            },
+            {
+                "t": "Spark SQL 临时视图写法",
+                "lang": "python",
+                "src": "通用模板",
+                "d": [
+                    "createOrReplaceTempView 之后可以直接写 SQL，改卷面更快",
+                    "窗口函数 row_number() 做分组 TOP N 很实用",
+                ],
+                "code": """df.createOrReplaceTempView('hotel')
+
+# 各商圈平均房间数前五
+spark.sql('''
+  SELECT shopping, AVG(room_num) AS avg_rooms, COUNT(*) AS cnt
+  FROM hotel
+  GROUP BY shopping
+  ORDER BY avg_rooms
+  LIMIT 5
+''').show()
+
+# 分组 TOP1：每个城市评分最高的酒店
+spark.sql('''
+  SELECT city, hotel_name, score FROM (
+    SELECT city, hotel_name, score,
+           row_number() OVER (PARTITION BY city ORDER BY score DESC) AS rn
+    FROM hotel
+  ) t WHERE rn = 1
+''').show(truncate=False)""",
+            },
+        ],
+    },
+
+    # ============ 9. 可视化 ============
+    {
+        "id": "vis", "name": "可视化出图", "icon": "📊",
+        "desc": "ECharts / Pyecharts / Matplotlib / Seaborn / Excel 五条路线，赛题三选一",
+        "cards": [
+            {
+                "t": "Matplotlib：多系列折线图（带数值标注 + 中文）",
+                "lang": "python",
+                "src": "《大数据应用》四 · 可视化",
+                "d": [
+                    "中文必须设置字体：SimHei（黑体）或 SimSun",
+                    "多个系列循环 plot，用 marker 区分形状",
+                    "关键点标数值用 ax.text 逐点循环",
+                    "保存到文件要在 plt.show() 之前",
+                ],
+                "code": """import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+
+# 中文字体（Linux 上若缺字体，用 fc-list :lang=zh 查看可用字体名）
+plt.rcParams['font.sans-serif'] = ['SimHei']
+plt.rcParams['axes.unicode_minus'] = False
+
+# trend_data：index=星期，列为 上午/下午/晚上
+trend_data = df.groupby(['weekday', 'time_period']).size().unstack().fillna(0)
+
+fig, ax = plt.subplots(figsize=(12, 6))
+markers = ['o', 's', 'D']
+
+for i, period in enumerate(['上午', '下午', '晚上']):
+    ax.plot(trend_data.index, trend_data[period],
+            label=period, marker=markers[i], linewidth=2, markersize=8)
+    for x, y in zip(trend_data.index, trend_data[period]):
+        ax.text(x, y + 0.5, f'{y:.0f}', ha='center', va='bottom', fontsize=9)
+
+ax.set_title('一周内不同时段学习人数趋势', fontsize=14, pad=20)
+ax.set_xlabel('星期'); ax.set_ylabel('学习人数')
+ax.legend(title='时段')
+ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+
+plt.tight_layout()
+plt.savefig('line_chart.png', dpi=300)
+plt.show()""",
+            },
+            {
+                "t": "Seaborn：主题、字体、配色、单位（高频扣分点）",
+                "lang": "python",
+                "src": "ZZ052 第 05、06 套（原题参数）",
+                "d": [
+                    "主题 set_theme(style='darkgrid') 或 whitegrid，赛题会指定",
+                    "字体 set_context('notebook', font_scale=2) 控制整体缩放",
+                    "自定义颜色直接传 color=，透明度用 alpha",
+                    "坐标轴范围 set(ylim=(0, 55))，标签带单位 ℃",
+                ],
+                "code": """import seaborn as sns
+import matplotlib.pyplot as plt
+
+sns.set_theme(style='darkgrid')                      # 主题
+plt.rcParams['font.sans-serif'] = ['SimSun']          # 字体（题目要求指定）
+sns.set_context('notebook', font_scale=2)             # 缩放因子
+
+# 面积图：高温与低温
+fig, ax = plt.subplots(figsize=(12, 6))
+ax.fill_between(df['month'], df['high'], color='#CC3300', alpha=0.4, linewidth=2)
+ax.fill_between(df['month'], df['low'],  color='#339999', alpha=0.7, linewidth=2)
+ax.plot(df['month'], df['high'], color='#CC3300', linewidth=2, marker='o')
+ax.plot(df['month'], df['low'],  color='#339999', linewidth=2, marker='o')
+
+# 柱状图 + 数据标签带单位
+bars = ax.bar(df['city'], df['temp'], color=sns.color_palette('hls', len(df)))
+ax.set(ylim=(0, 55))
+for b in bars:
+    ax.text(b.get_x() + b.get_width()/2, b.get_height(),
+            f'{b.get_height():.1f}℃', ha='center', va='bottom')
+
+plt.tight_layout()
+plt.savefig('area.png', dpi=300)""",
+            },
+            {
+                "t": "Pyecharts：七图模板（柱状/饼/折线/地图/词云）",
+                "lang": "python",
+                "src": "ZZ052 第 01、09 套",
+                "d": [
+                    "套路固定：构造图表对象 → add_xaxis/add_yaxis → set_global_opts → render",
+                    "地图要先装对应地图包（echarts-countries-pypkg / echarts-china-provinces-pypkg）",
+                    "输出 HTML，题目要求时会指定背景图，改 render 后手动替换或用底图 CSS",
+                ],
+                "code": """from pyecharts.charts import Bar, Pie, Line, Map, WordCloud
+from pyecharts import options as opts
+
+# 1) 柱状图（带时间轴的可用 Bar + Timeline 或 effectScatter 组 Timeline）
+bar = (Bar()
+       .add_xaxis(cities)
+       .add_yaxis('访问量', counts)
+       .set_global_opts(
+           title_opts=opts.TitleOpts(title='各省份访问量'),
+           toolbox_opts=opts.ToolboxOpts(),
+           xaxis_opts=opts.AxisOpts(axislabel_opts=opts.LabelOpts(rotate=30))))
+bar.render('bar.html')
+
+# 2) 饼图
+pie = (Pie()
+       .add('', [list(z) for z in zip(labels, values)],
+            radius=['30%', '70%'])
+       .set_global_opts(title_opts=opts.TitleOpts(title='设备类型占比'),
+                        legend_opts=opts.LegendOpts(orient='vertical', pos_right='5%')))
+pie.render('pie.html')
+
+# 3) 中国地图
+cmap = (Map()
+        .add('访问量', [list(z) for z in zip(provinces, values)], 'china')
+        .set_global_opts(
+            title_opts=opts.TitleOpts(title='省份访问量分布'),
+            visualmap_opts=opts.VisualMapOpts(max_=max(values))))
+cmap.render('map.html')
+
+# 4) 词云
+wc = WordCloud().add('', words, word_size_range=[20, 100])
+wc.render('wordcloud.html')""",
+            },
+            {
+                "t": "ECharts 补全题：补全 legend / yAxis / series",
+                "lang": "js",
+                "src": "ZZ052 第 05、06、07、08 套（Web 项目题）",
+                "d": [
+                    "四步：取 DOM → echarts.init → 补齐 option → setOption",
+                    "类目轴 yAxis: {type: 'category', data: [...]}，注意柱状图横纵调换",
+                    "饼图常用 radius: ['20%','55%']、itemStyle: {borderRadius: 4}",
+                    "题目给的文件里通常只缺其中一两块，别重写全部配置",
+                ],
+                "code": """// 柱状图（类目轴在 y 轴——热门技术 / 热门景点题常见）
+function getHotskill() {
+  let chart = echarts.init(document.getElementById('hotskill'));
+  let option = {
+    title: { text: '热门技术需求 TOP10', left: 'center' },
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['需求量'], bottom: 0 },
+    yAxis: { type: 'category', data: skills },     // 类目轴放在 y
+    xAxis: { type: 'value' },
+    series: [{
+      name: '需求量',
+      type: 'bar',
+      data: counts,
+      itemStyle: { color: '#5470c6' },
+      label: { show: true, position: 'right' }
+    }]
+  };
+  chart.setOption(option);
+}
+
+// 饼图（好评度分布）
+function getSalaryData() {
+  let chart = echarts.init(document.getElementById('salary'));
+  chart.setOption({
+    tooltip: { trigger: 'item' },
+    legend: { orient: 'vertical', right: 10, top: 'center' },
+    series: [{
+      type: 'pie',
+      radius: ['20%', '55%'],
+      data: [{ name: '大专', value: 120 }, { name: '本科', value: 240 }],
+      itemStyle: { borderRadius: 4 }
+    }]
+  });
+}""",
+            },
+            {
+                "t": "Excel：透视表与四类图表要点",
+                "lang": "text",
+                "src": "ZZ052 第 03、05、06、09 套",
+                "d": [
+                    "透视表：行=分类、列=维度、值=合计项，值字段设置里改「值汇总方式」为求和/平均",
+                    "带数据标记的折线图：选中数据 → 插入折线图 → 添加数据标记 → 涨跌柱线改浅绿",
+                    "簇状柱形图：图例置底部、数据标签保留两位小数、低于 0℃ 的标签单独设红色",
+                    "圆环图=饼图改子类型；去掉纵坐标轴与网格线在「图表元素」里关",
+                ],
+                "code": """【透视表标准动作】
+1. 光标放数据区内 → 插入 → 数据透视表
+2. 行：一级分类、二级分类      列：楼层      值：合计（万元）
+3. 值字段设置 → 汇总方式=求和，数字格式保留两位小数
+4. 行标签排序：右键 → 排序 → 降序（按合计）
+5. 数据透视图：分析 → 数据透视图 → 柱状图
+6. 图表右侧「+」号 → 取消纵坐标轴与网格线
+
+【簇状柱形图】（4 城市 2011—2020 四季度平均低温）
+- 插入柱形图 → 簇状柱形图
+- 图表标题：顶部，加粗居中
+- 图例：置于底部
+- 数据标签：保留 2 位小数
+- 负数标签显红：选中数据标签 → 格式 → 数字 → 自定义格式代码
+  0.00;[红色]-0.00
+
+【带数据标记的折线图】（空气质量波动）
+- 折线图 → 显示数据标记
+- 涨/跌柱线：图表设计 → 添加图表元素 → 涨/跌柱线 → 改浅绿色
+- 横轴选项选「按类别」，避免日期被当成数值轴
+
+【圆环图】饼图 → 改圆环图；数据标签可显示百分比（类别名称 + 值）""",
+            },
+        ],
+    },
+
+    # ============ 10. 预测分析 ============
+    {
+        "id": "ml", "name": "预测分析（机器学习）", "icon": "🔮",
+        "desc": "2026 规程明确要求 scikit-learn 并评估算法效果，但 ZZ052 几乎不考——必须自己补",
+        "cards": [
+            {
+                "t": "回归预测标准流程 + R² 评估",
+                "lang": "python",
+                "src": "《预测分析》/ 2025 中职样题第 7 题",
+                "d": [
+                    "五步：切分 → 编码 → 标准化 → 训练 → 评估",
+                    "get_dummies 后要补齐 train/test 列差，否则维度不一致报错",
+                    "评估用 model.score(X_test, y_test)（回归即 R²）",
+                ],
+                "code": """import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import GradientBoostingRegressor
+
+data = pd.read_csv('sales_data.csv')
+X = data[['ad_cost', 'holiday_flag', 'historical_sales']]
+y = data['next_week_sales']
+
+# 1) 划分（先分再处理，避免数据泄露）
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42)
+
+# 2) 类别变量编码
+X_train = pd.get_dummies(X_train, columns=['holiday_flag'])
+X_test  = pd.get_dummies(X_test,  columns=['holiday_flag'])
+
+# 3) 补齐训练集有、测试集没有的列
+for col in set(X_train.columns) - set(X_test.columns):
+    X_test[col] = 0
+X_test = X_test[X_train.columns]
+
+# 4) 标准化 + 训练
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test  = scaler.transform(X_test)
+
+model = GradientBoostingRegressor()
+model.fit(X_train, y_train)
+
+# 5) 评估
+print('R2 Score:', round(model.score(X_test, y_test), 4))
+pred = model.predict(X_test)""",
+            },
+            {
+                "t": "分类模型与评估指标（设备故障预测）",
+                "lang": "python",
+                "src": "2025 中职样题 · 设备故障预测",
+                "d": [
+                    "分类常用 RandomForestClassifier / LogisticRegression",
+                    "评估报告用 classification_report，准确率别只看 accuracy",
+                    "类别不平衡时用 class_weight='balanced'",
+                ],
+                "code": """import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+
+df = pd.read_csv('device_data.csv')
+X = df[['temperature', 'vibration', 'runtime_hours', 'error_count']]
+y = df['is_failure']            # 0/1 标签
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y)
+
+clf = RandomForestClassifier(
+    n_estimators=200, max_depth=8, class_weight='balanced', random_state=42)
+clf.fit(X_train, y_train)
+
+y_pred = clf.predict(X_test)
+
+# 评估（规程要求「对算法效果进行评估」）
+print(classification_report(y_test, y_pred, target_names=['正常', '故障']))
+print(confusion_matrix(y_test, y_pred))
+
+# 特征重要度，写方案设计时可以用
+imp = pd.Series(clf.feature_importances_, index=X.columns).sort_values(ascending=False)
+print(imp)
+
+# 预测概率输出（某些题目要概率而非类别）
+proba = clf.predict_proba(X_test)[:, 1]""",
+            },
+        ],
+    },
+]

@@ -1,0 +1,21 @@
+# 大数据备赛学习站（静态站点，nginx 托管）
+# 本地副本：D:\Users\workbuddy\2026-09-22-15-29-47\study-site\docker-compose.yml
+# VM 副本：  /data/study-site/docker-compose.yml
+# 站点文件： /opt/study-site/web （由 build.py 生成后投送）
+# 访问：     http://192.168.1.100:8888
+services:
+  study-site:
+    image: nginx:1.24-alpine
+    container_name: study-site
+    restart: unless-stopped
+    ports:
+      - "8888:80"
+    volumes:
+      - /opt/study-site/web:/usr/share/nginx/html:ro
+      # 自带配置：pid 落在 /tmp（CentOS 7 老内核写 /run 会 Operation not permitted）+ 开启 gzip
+      - /data/study-site/nginx.conf:/etc/nginx/nginx.conf:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
